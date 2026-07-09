@@ -44,14 +44,14 @@ body {
 }
 
 .container {
-  padding: 16px;
+  padding: 12px;
 }
 
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .header h1 {
@@ -68,15 +68,15 @@ body {
 .prices {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .card {
   background: var(--bg-secondary);
-  border-radius: 10px;
-  padding: 12px;
-  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--accent);
 }
 
 .card.error {
@@ -84,9 +84,9 @@ body {
 }
 
 .symbol {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: 2px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -98,15 +98,16 @@ body {
 }
 
 .price {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
+  line-height: 1.2;
 }
 
 .change-wrap {
   display: flex;
-  gap: 8px;
-  font-size: 13px;
+  gap: 4px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -121,8 +122,8 @@ body {
 }
 
 .error-msg {
-  margin-top: 6px;
-  font-size: 11px;
+  margin-top: 2px;
+  font-size: 10px;
   color: var(--error);
 }
 
@@ -159,6 +160,6 @@ body {
 .loading {
   text-align: center;
   color: var(--text-secondary);
-  font-size: 13px;
-  padding: 12px 0;
+  font-size: 12px;
+  padding: 8px 0;
 }
