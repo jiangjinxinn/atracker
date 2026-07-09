@@ -60,7 +60,13 @@ async function setBadgeFullNumber(value) {
 async function formatBadgePriceLocal(value) {
   if (value == null) return '';
   const full = await getBadgeFullNumber();
-  if (full) return value.toFixed(0);
+  if (full) {
+    const two = value.toFixed(2);
+    if (two.length <= 4) return two;
+    const one = value.toFixed(1);
+    if (one.length <= 4) return one;
+    return value.toFixed(0);
+  }
   let text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 });
   if (text.length > 4) {
     text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 0 });

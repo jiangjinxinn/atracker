@@ -90,7 +90,13 @@ async function refreshPrices() {
 async function formatBadgePrice(value) {
   if (value == null) return '';
   const { badgeFullNumber } = await chrome.storage.local.get('badgeFullNumber');
-  if (badgeFullNumber) return value.toFixed(0);
+  if (badgeFullNumber) {
+    const two = value.toFixed(2);
+    if (two.length <= 4) return two;
+    const one = value.toFixed(1);
+    if (one.length <= 4) return one;
+    return value.toFixed(0);
+  }
   let text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 });
   if (text.length > 4) {
     text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 0 });
