@@ -118,6 +118,34 @@ body {
   background: #8b5cf6;
 }
 
+.card.compact {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.card.compact .symbol-row {
+  margin-bottom: 0;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.card.compact .price-row {
+  flex: 1;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.card.compact .price {
+  font-size: 14px;
+}
+
+.card.compact .change-wrap {
+  font-size: 10px;
+}
+
 .price-row {
   display: flex;
   justify-content: space-between;

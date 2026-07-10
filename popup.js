@@ -51,7 +51,7 @@ async function getSymbols() {
 }
 
 async function renderPrices() {
-  const { prices = {}, lastUpdate } = await chrome.storage.local.get(['prices', 'lastUpdate']);
+  const { prices = {}, lastUpdate, compactMode } = await chrome.storage.local.get(['prices', 'lastUpdate', 'compactMode']);
   const symbols = await getSymbols();
   const container = document.getElementById('prices');
   const status = document.getElementById('status');
@@ -67,6 +67,7 @@ async function renderPrices() {
     const item = prices[symbol.key];
     const card = document.createElement('div');
     card.className = 'card';
+    if (compactMode) card.classList.add('compact');
     if (item?.error) card.classList.add('error');
 
     const titleRow = document.createElement('div');

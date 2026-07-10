@@ -57,6 +57,20 @@ async function setBadgeFullNumber(value) {
   }
 }
 
+async function getCompactMode() {
+  const { compactMode } = await chrome.storage.local.get('compactMode');
+  return compactMode === true;
+}
+
+async function setCompactMode(value) {
+  await chrome.storage.local.set({ compactMode: value === true });
+  try {
+    await chrome.runtime.sendMessage({ action: 'refresh' });
+  } catch (e) {
+    // 后台可能未运行，忽略
+  }
+}
+
 async function formatBadgePriceLocal(value) {
   if (value == null) return '';
   const full = await getBadgeFullNumber();
@@ -201,6 +215,13 @@ async function renderBadgeFullToggle() {
   toggle.setAttribute('aria-label', full ? '完整数字已开启' : '完整数字已关闭');
 }
 
+async function renderCompactToggle() {
+  const compact = await getCompactMode();
+  const toggle = document.getElementById('compact-toggle');
+  toggle.classList.toggle('active', compact);
+  toggle.setAttribute('aria-label', compact ? '紧凑模式已开启' : '紧凑模式已关闭');
+}
+
 document.getElementById('add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const codeInput = document.getElementById('code');
@@ -273,6 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   renderList();
   renderBadgeFullToggle();
+  renderCompactToggle();
   applyBadgeSettings();
 
   document.getElementById('badge-full-toggle').addEventListener('click', async () => {
@@ -281,5 +303,12 @@ document.addEventListener('DOMContentLoaded', () => {
     await renderBadgeFullToggle();
     await applyBadgeSettings();
     showBadgeMessage(next ? '角标将显示完整数字' : '角标将缩略显示');
+  });
+
+  document.getElementById('compact-toggle').addEventListener('click', async () => {
+    const next = !(await getCompactMode());
+    await setCompactMode(next);
+    await renderCompactToggle();
+    showBadgeMessage(next ? '已开启紧凑模式' : '已关闭紧凑模式');
   });
 });
