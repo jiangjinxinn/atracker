@@ -17,25 +17,20 @@ async function getSymbols() {
 }
 
 async function fetchSymbol(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol.yahoo)}?interval=1d&range=1d`;
+  // 日级数据会把盘前/盘中/盘后聚合成一个点，无法拿到盘前价。
+  // 使用 5 分钟粒度 + includePrePost 才能拿到完整时段序列。
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol.yahoo)}?interval=5m&range=1d&includePrePost=true`;
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const result = data.chart?.result?.[0];
     if (!result) throw new Error('无数据');
-    const meta = result.meta;
-    const price = meta.regularMarketPrice ?? meta.previousClose ?? null;
-    const prev = meta.previousClose || meta.chartPreviousClose || price;
-    const change = price != null && prev != null ? price - prev : null;
-    const changePct = change != null && prev ? (change / prev) * 100 : null;
+    const parsed = parseChartResult(result);
     return {
       key: symbol.key,
       label: symbol.label,
-      price,
-      change,
-      changePct,
-      currency: meta.currency || 'USD',
+      ...parsed,
       timestamp: Date.now(),
       error: null,
     };
@@ -46,11 +41,64 @@ async function fetchSymbol(symbol) {
       price: null,
       change: null,
       changePct: null,
+      session: null,
       currency: 'USD',
       timestamp: Date.now(),
       error: err.message,
     };
   }
+}
+
+function parseChartResult(result) {
+  const meta = result.meta;
+  const timestamps = result.timestamp || [];
+  const quote = result.indicators?.quote?.[0] || {};
+  const closes = quote.close || [];
+
+  let price = null;
+  let priceTime = null;
+  for (let i = closes.length - 1; i >= 0; i--) {
+    if (closes[i] != null) {
+      price = closes[i];
+      priceTime = timestamps[i] != null ? timestamps[i] * 1000 : null;
+      break;
+    }
+  }
+
+  if (price == null) {
+    price = meta.regularMarketPrice ?? meta.previousClose ?? null;
+    priceTime = meta.regularMarketTime ? meta.regularMarketTime * 1000 : null;
+  }
+
+  const prev = meta.previousClose || meta.chartPreviousClose || price;
+  const change = price != null && prev != null ? price - prev : null;
+  const changePct = change != null && prev ? (change / prev) * 100 : null;
+  const session = resolveSession(meta, priceTime);
+
+  return {
+    price,
+    change,
+    changePct,
+    session,
+    currency: meta.currency || 'USD',
+  };
+}
+
+function resolveSession(meta, priceTime) {
+  const period = meta.currentTradingPeriod;
+  if (!period || !priceTime) return null;
+  const t = Math.floor(priceTime / 1000);
+  if (period.pre && t >= period.pre.start && t < period.pre.end) return 'pre';
+  if (period.regular && t >= period.regular.start && t < period.regular.end) return 'regular';
+  if (period.post && t >= period.post.start && t < period.post.end) return 'post';
+  return null;
+}
+
+function formatSession(session) {
+  if (session === 'pre') return '盘前';
+  if (session === 'regular') return '盘中';
+  if (session === 'post') return '盘后';
+  return '';
 }
 
 function formatTooltipPrice(value) {
@@ -69,7 +117,8 @@ async function updateActionTitle(results) {
   for (const r of results) {
     const price = formatTooltipPrice(r.price);
     const change = formatTooltipChangePct(r.changePct);
-    lines.push(`${r.key}: ${price}${change}`);
+    const session = formatSession(r.session);
+    lines.push(`${r.key}: ${price}${change}${session ? ` · ${session}` : ''}`);
   }
   chrome.action.setTitle({ title: lines.join('\n') });
 }

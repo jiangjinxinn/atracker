@@ -30,6 +30,13 @@ function formatTime(timestamp) {
   return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+function formatSession(session) {
+  if (session === 'pre') return '盘前';
+  if (session === 'regular') return '盘中';
+  if (session === 'post') return '盘后';
+  return '';
+}
+
 const DEFAULT_SYMBOLS = [
   { key: 'GC=F', yahoo: 'GC=F', label: '' },
   { key: 'SI=F', yahoo: 'SI=F', label: '' },
@@ -62,9 +69,23 @@ async function renderPrices() {
     card.className = 'card';
     if (item?.error) card.classList.add('error');
 
+    const titleRow = document.createElement('div');
+    titleRow.className = 'symbol-row';
+
     const title = document.createElement('div');
     title.className = 'symbol';
     title.textContent = symbol.label ? `${symbol.key} · ${symbol.label}` : symbol.key;
+
+    const session = document.createElement('span');
+    session.className = 'session-tag';
+    const sessionText = formatSession(item?.session);
+    if (sessionText) {
+      session.classList.add(item.session);
+      session.textContent = sessionText;
+    }
+
+    titleRow.appendChild(title);
+    if (sessionText) titleRow.appendChild(session);
 
     const priceRow = document.createElement('div');
     priceRow.className = 'price-row';
@@ -95,7 +116,7 @@ async function renderPrices() {
     priceRow.appendChild(price);
     priceRow.appendChild(changeWrap);
 
-    card.appendChild(title);
+    card.appendChild(titleRow);
     card.appendChild(priceRow);
 
     if (item?.error) {
@@ -116,25 +137,18 @@ async function fetchPricesInPopup() {
   if (symbols.length === 0) return;
 
   const results = await Promise.all(symbols.map(async (symbol) => {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol.yahoo)}?interval=1d&range=1d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol.yahoo)}?interval=5m&range=1d&includePrePost=true`;
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const result = data.chart?.result?.[0];
       if (!result) throw new Error('无数据');
-      const meta = result.meta;
-      const price = meta.regularMarketPrice ?? meta.previousClose ?? null;
-      const prev = meta.previousClose || meta.chartPreviousClose || price;
-      const change = price != null && prev != null ? price - prev : null;
-      const changePct = change != null && prev ? (change / prev) * 100 : null;
+      const parsed = parseChartResult(result);
       return {
         key: symbol.key,
         label: symbol.label,
-        price,
-        change,
-        changePct,
-        currency: meta.currency || 'USD',
+        ...parsed,
         timestamp: Date.now(),
         error: null,
       };
@@ -145,6 +159,7 @@ async function fetchPricesInPopup() {
         price: null,
         change: null,
         changePct: null,
+        session: null,
         currency: 'USD',
         timestamp: Date.now(),
         error: err.message,
@@ -154,6 +169,51 @@ async function fetchPricesInPopup() {
   const prices = {};
   for (const r of results) prices[r.key] = r;
   await chrome.storage.local.set({ prices, lastUpdate: Date.now() });
+}
+
+function parseChartResult(result) {
+  const meta = result.meta;
+  const timestamps = result.timestamp || [];
+  const quote = result.indicators?.quote?.[0] || {};
+  const closes = quote.close || [];
+
+  let price = null;
+  let priceTime = null;
+  for (let i = closes.length - 1; i >= 0; i--) {
+    if (closes[i] != null) {
+      price = closes[i];
+      priceTime = timestamps[i] != null ? timestamps[i] * 1000 : null;
+      break;
+    }
+  }
+
+  if (price == null) {
+    price = meta.regularMarketPrice ?? meta.previousClose ?? null;
+    priceTime = meta.regularMarketTime ? meta.regularMarketTime * 1000 : null;
+  }
+
+  const prev = meta.previousClose || meta.chartPreviousClose || price;
+  const change = price != null && prev != null ? price - prev : null;
+  const changePct = change != null && prev ? (change / prev) * 100 : null;
+  const session = resolveSession(meta, priceTime);
+
+  return {
+    price,
+    change,
+    changePct,
+    session,
+    currency: meta.currency || 'USD',
+  };
+}
+
+function resolveSession(meta, priceTime) {
+  const period = meta.currentTradingPeriod;
+  if (!period || !priceTime) return null;
+  const t = Math.floor(priceTime / 1000);
+  if (period.pre && t >= period.pre.start && t < period.pre.end) return 'pre';
+  if (period.regular && t >= period.regular.start && t < period.regular.end) return 'regular';
+  if (period.post && t >= period.post.start && t < period.post.end) return 'post';
+  return null;
 }
 
 async function refreshFromPopup() {

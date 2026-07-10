@@ -83,12 +83,39 @@ body {
   border-left-color: var(--down);
 }
 
+.symbol-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
 .symbol {
   font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 2px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.session-tag {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #fff;
+  background: var(--accent-secondary);
+}
+
+.session-tag.pre {
+  background: #f59e0b;
+}
+
+.session-tag.regular {
+  background: #10b981;
+}
+
+.session-tag.post {
+  background: #8b5cf6;
 }
 
 .price-row {
