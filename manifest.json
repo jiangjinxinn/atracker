@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "X Tracker",
+  "name": "A Tracker",
   "version": "1.0.0",
   "description": "追踪 XAU、XAG、BTC、ETH 实时价格",
   "permissions": [
@@ -12,7 +12,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "X Tracker"
+    "default_title": "A Tracker"
   },
   "background": {
     "service_worker": "background.js"
