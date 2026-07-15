@@ -16,16 +16,31 @@ async function getSymbols() {
   return Array.isArray(symbols) && symbols.length > 0 ? symbols : DEFAULT_SYMBOLS;
 }
 
+async function addFetchLog(entry) {
+  const { fetchLogs = [] } = await chrome.storage.local.get('fetchLogs');
+  fetchLogs.unshift({ time: Date.now(), ...entry });
+  if (fetchLogs.length > 50) fetchLogs.pop();
+  await chrome.storage.local.set({ fetchLogs });
+}
+
 async function fetchSymbol(symbol) {
   // 日级数据会把盘前/盘中/盘后聚合成一个点，无法拿到盘前价。
   // 使用 5 分钟粒度 + includePrePost 才能拿到完整时段序列。
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol.yahoo)}?interval=5m&range=1d&includePrePost=true`;
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const preview = (await res.text()).slice(0, 300);
+      await addFetchLog({ code: symbol.yahoo, url, status: res.status, ok: false, preview });
+      throw new Error(`HTTP ${res.status}`);
+    }
     const data = await res.json();
     const result = data.chart?.result?.[0];
-    if (!result) throw new Error('无数据');
+    if (!result) {
+      await addFetchLog({ code: symbol.yahoo, url, status: res.status, ok: false, preview: JSON.stringify(data).slice(0, 300), error: '无数据' });
+      throw new Error('无数据');
+    }
+    await addFetchLog({ code: symbol.yahoo, url, status: res.status, ok: true, preview: JSON.stringify(data).slice(0, 200) });
     const parsed = parseChartResult(result);
     return {
       key: symbol.key,
@@ -35,6 +50,9 @@ async function fetchSymbol(symbol) {
       error: null,
     };
   } catch (err) {
+    if (!err.message?.startsWith('HTTP') && err.message !== '无数据') {
+      await addFetchLog({ code: symbol.yahoo, url, status: null, ok: false, error: err.message });
+    }
     return {
       key: symbol.key,
       label: symbol.label,

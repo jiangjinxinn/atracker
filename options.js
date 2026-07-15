@@ -290,12 +290,44 @@ async function initTheme() {
   });
 }
 
+async function renderLogs() {
+  const { fetchLogs = [] } = await chrome.storage.local.get('fetchLogs');
+  const area = document.getElementById('logs-area');
+  if (fetchLogs.length === 0) {
+    area.value = '暂无日志';
+    return;
+  }
+  area.value = JSON.stringify(fetchLogs, null, 2);
+}
+
+function toggleLogs() {
+  const area = document.getElementById('logs-area');
+  const hidden = area.style.display === 'none';
+  area.style.display = hidden ? 'block' : 'none';
+  document.getElementById('toggle-logs').textContent = hidden ? '收起日志' : '查看日志';
+  if (hidden) renderLogs();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   renderList();
   renderBadgeFullToggle();
   renderCompactToggle();
   applyBadgeSettings();
+
+  document.getElementById('toggle-logs').addEventListener('click', toggleLogs);
+
+  document.getElementById('copy-logs').addEventListener('click', async () => {
+    const { fetchLogs = [] } = await chrome.storage.local.get('fetchLogs');
+    await navigator.clipboard.writeText(JSON.stringify(fetchLogs, null, 2));
+    showMessage('日志已复制');
+  });
+
+  document.getElementById('clear-logs').addEventListener('click', async () => {
+    await chrome.storage.local.set({ fetchLogs: [] });
+    await renderLogs();
+    showMessage('日志已清空');
+  });
 
   document.getElementById('badge-full-toggle').addEventListener('click', async () => {
     const next = !(await getBadgeFullNumber());

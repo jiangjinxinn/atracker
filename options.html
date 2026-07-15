@@ -79,6 +79,17 @@
         <button id="reset" class="btn btn-secondary">恢复默认</button>
       </div>
     </div>
+
+    <div class="section">
+      <h2>拉取日志</h2>
+      <p class="hint">最近 50 次行情拉取记录，包含请求状态、返回预览和错误信息，方便排查网络问题。</p>
+      <div class="actions">
+        <button id="toggle-logs" class="btn">查看日志</button>
+        <button id="copy-logs" class="btn btn-secondary">复制日志</button>
+        <button id="clear-logs" class="btn btn-danger">清空日志</button>
+      </div>
+      <textarea id="logs-area" class="logs-area" rows="10" readonly style="display: none; width: 100%; margin-top: 12px; font-family: monospace; font-size: 12px;"></textarea>
+    </div>
   </div>
   <script src="options.js"></script>
 </body>
