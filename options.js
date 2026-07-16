@@ -87,17 +87,16 @@ async function formatBadgeValueLocal(item) {
   const value = item?.price;
   if (value == null) return '';
 
-  const intDigits = Math.floor(Math.abs(value)).toString().length;
-  let decimals = intDigits >= 4 ? 0 : Math.min(4 - intDigits, 2);
-  while (decimals >= 0) {
-    const text = value.toFixed(decimals);
-    if (text.replace('.', '').length <= 4) return text;
-    decimals--;
-  }
+  const abs = Math.abs(value);
+  if (abs === 0) return '0000';
 
-  const magnitude = Math.floor(Math.log10(Math.abs(value)));
-  const scaled = value / Math.pow(10, magnitude - 3);
-  return Math.round(scaled).toString();
+  const magnitude = Math.floor(Math.log10(abs));
+  const scaled = abs / Math.pow(10, magnitude - 3);
+  let rounded = Math.round(scaled);
+  if (rounded >= 10000) {
+    rounded = Math.round(scaled / 10);
+  }
+  return rounded.toString().padStart(4, '0');
 }
 
 async function applyBadgeSettings() {
