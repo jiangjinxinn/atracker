@@ -1,12 +1,15 @@
 const DEFAULT_SYMBOLS = [
-  { key: 'GC=F', yahoo: 'GC=F', label: '' },
-  { key: 'SI=F', yahoo: 'SI=F', label: '' },
-  { key: 'HG=F', yahoo: 'HG=F', label: '' },
-  { key: 'BTC-USD', yahoo: 'BTC-USD', label: '' },
-  { key: 'ETH-USD', yahoo: 'ETH-USD', label: '' },
+  { key: 'hf_GC', sina: 'hf_GC', label: '纽约金', visible: false },
+  { key: 'hf_SI', sina: 'hf_SI', label: '纽约银', visible: false },
+  { key: 'hf_HG', sina: 'hf_HG', label: '纽约铜', visible: false },
+  { key: 'hf_CL', sina: 'hf_CL', label: '纽约原油', visible: false },
+  { key: 'hf_XAU', sina: 'hf_XAU', label: '伦敦金', visible: true },
+  { key: 'hf_XAG', sina: 'hf_XAG', label: '伦敦银', visible: true },
+  { key: 'hf_CAD', sina: 'hf_CAD', label: '伦敦铜', visible: true },
+  { key: 'sh603993', sina: 'sh603993', label: '', visible: true },
 ];
 
-const DEFAULT_BADGE_SYMBOL = 'GC=F';
+const DEFAULT_BADGE_SYMBOL = 'hf_XAU';
 
 async function getSymbols() {
   const { symbols } = await chrome.storage.local.get('symbols');
@@ -71,9 +74,34 @@ async function setCompactMode(value) {
   }
 }
 
-async function formatBadgePriceLocal(value) {
-  if (value == null) return '';
+async function getBadgeChangePct() {
+  const { badgeChangePct } = await chrome.storage.local.get('badgeChangePct');
+  return badgeChangePct === true;
+}
+
+async function setBadgeChangePct(value) {
+  await chrome.storage.local.set({ badgeChangePct: value === true });
+  try {
+    await chrome.runtime.sendMessage({ action: 'refresh' });
+  } catch (e) {
+    // 后台可能未运行，忽略
+  }
+}
+
+async function formatBadgeValueLocal(item) {
   const full = await getBadgeFullNumber();
+  const changePctMode = await getBadgeChangePct();
+
+  if (changePctMode) {
+    const value = item?.changePct;
+    if (value == null) return '';
+    const sign = value < 0 ? '-' : '';
+    return `${sign}${Math.abs(value).toFixed(2)}`;
+  }
+
+  const value = item?.price;
+  if (value == null) return '';
+
   if (full) {
     const two = value.toFixed(2);
     if (two.length <= 4) return two;
@@ -81,6 +109,7 @@ async function formatBadgePriceLocal(value) {
     if (one.length <= 4) return one;
     return value.toFixed(0);
   }
+
   let text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 });
   if (text.length > 4) {
     text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 0 });
@@ -97,8 +126,8 @@ async function applyBadgeSettings() {
   }
   const { prices = {} } = await chrome.storage.local.get('prices');
   const item = prices[currentBadge];
-  if (item?.price != null) {
-    const badgeText = await formatBadgePriceLocal(item.price);
+  const badgeText = await formatBadgeValueLocal(item);
+  if (badgeText) {
     chrome.action.setBadgeText({ text: badgeText });
     chrome.action.setBadgeBackgroundColor({ color: '#10b981' });
   } else {
@@ -121,9 +150,20 @@ function showBadgeMessage(text, isError = false) {
 }
 
 function normalizeCode(raw) {
-  const code = raw.trim().toUpperCase();
-  if (!code) return null;
-  return { key: code, yahoo: code, label: '' };
+  const input = raw.trim();
+  if (!input) return null;
+
+  const lower = input.toLowerCase();
+
+  if (lower.startsWith('hf_')) {
+    return { key: lower, sina: lower, label: '', visible: true };
+  }
+
+  if (/^(sh|sz|bj)\d{6}$/.test(lower)) {
+    return { key: lower, sina: lower, label: '', visible: true };
+  }
+
+  return null;
 }
 
 async function moveSymbol(index, direction) {
@@ -145,10 +185,24 @@ async function renderList() {
     const tr = document.createElement('tr');
 
     const tdKey = document.createElement('td');
-    tdKey.textContent = symbol.key;
+    tdKey.textContent = symbol.label ? `${symbol.key} · ${symbol.label}` : symbol.key;
 
-    const tdYahoo = document.createElement('td');
-    tdYahoo.textContent = symbol.yahoo;
+    const tdSina = document.createElement('td');
+    tdSina.textContent = symbol.sina || '—';
+
+    const tdVisible = document.createElement('td');
+    const visibleToggle = document.createElement('button');
+    const isVisible = symbol.visible !== false;
+    visibleToggle.className = 'toggle' + (isVisible ? ' active' : '');
+    visibleToggle.setAttribute('aria-label', isVisible ? '在列表中显示，点击隐藏' : '在列表中隐藏，点击显示');
+    visibleToggle.addEventListener('click', async () => {
+      symbols[index].visible = !isVisible;
+      await saveSymbols(symbols);
+      await renderList();
+      await applyBadgeSettings();
+      showMessage(isVisible ? '已隐藏' : '已显示');
+    });
+    tdVisible.appendChild(visibleToggle);
 
     const tdOrder = document.createElement('td');
     const upBtn = document.createElement('button');
@@ -200,7 +254,8 @@ async function renderList() {
     tdBadge.appendChild(toggle);
 
     tr.appendChild(tdKey);
-    tr.appendChild(tdYahoo);
+    tr.appendChild(tdSina);
+    tr.appendChild(tdVisible);
     tr.appendChild(tdOrder);
     tr.appendChild(tdAction);
     tr.appendChild(tdBadge);
@@ -222,13 +277,38 @@ async function renderCompactToggle() {
   toggle.setAttribute('aria-label', compact ? '紧凑模式已开启' : '紧凑模式已关闭');
 }
 
+async function renderBadgeChangePctToggle() {
+  const show = await getBadgeChangePct();
+  const toggle = document.getElementById('badge-change-pct-toggle');
+  toggle.classList.toggle('active', show);
+  toggle.setAttribute('aria-label', show ? '角标显示涨跌幅已开启' : '角标显示涨跌幅已关闭');
+}
+
+async function renderLogs() {
+  const { fetchLogs = [] } = await chrome.storage.local.get('fetchLogs');
+  const area = document.getElementById('logs-area');
+  if (fetchLogs.length === 0) {
+    area.value = '暂无日志';
+    return;
+  }
+  area.value = JSON.stringify(fetchLogs, null, 2);
+}
+
+function toggleLogs() {
+  const area = document.getElementById('logs-area');
+  const hidden = area.style.display === 'none';
+  area.style.display = hidden ? 'block' : 'none';
+  document.getElementById('toggle-logs').textContent = hidden ? '收起日志' : '查看日志';
+  if (hidden) renderLogs();
+}
+
 document.getElementById('add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const codeInput = document.getElementById('code');
   const normalized = normalizeCode(codeInput.value);
 
   if (!normalized) {
-    showMessage('请输入有效代码', true);
+    showMessage('仅支持新浪代码：期货（hf_ 开头）或 A 股（sh/sz/bj+6 位数字）', true);
     return;
   }
 
@@ -290,29 +370,12 @@ async function initTheme() {
   });
 }
 
-async function renderLogs() {
-  const { fetchLogs = [] } = await chrome.storage.local.get('fetchLogs');
-  const area = document.getElementById('logs-area');
-  if (fetchLogs.length === 0) {
-    area.value = '暂无日志';
-    return;
-  }
-  area.value = JSON.stringify(fetchLogs, null, 2);
-}
-
-function toggleLogs() {
-  const area = document.getElementById('logs-area');
-  const hidden = area.style.display === 'none';
-  area.style.display = hidden ? 'block' : 'none';
-  document.getElementById('toggle-logs').textContent = hidden ? '收起日志' : '查看日志';
-  if (hidden) renderLogs();
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   renderList();
   renderBadgeFullToggle();
   renderCompactToggle();
+  renderBadgeChangePctToggle();
   applyBadgeSettings();
 
   document.getElementById('toggle-logs').addEventListener('click', toggleLogs);
@@ -342,5 +405,13 @@ document.addEventListener('DOMContentLoaded', () => {
     await setCompactMode(next);
     await renderCompactToggle();
     showBadgeMessage(next ? '已开启紧凑模式' : '已关闭紧凑模式');
+  });
+
+  document.getElementById('badge-change-pct-toggle').addEventListener('click', async () => {
+    const next = !(await getBadgeChangePct());
+    await setBadgeChangePct(next);
+    await renderBadgeChangePctToggle();
+    await applyBadgeSettings();
+    showBadgeMessage(next ? '角标将显示涨跌幅' : '角标将显示价格');
   });
 });

@@ -38,11 +38,14 @@ function formatSession(session) {
 }
 
 const DEFAULT_SYMBOLS = [
-  { key: 'GC=F', yahoo: 'GC=F', label: '' },
-  { key: 'SI=F', yahoo: 'SI=F', label: '' },
-  { key: 'HG=F', yahoo: 'HG=F', label: '' },
-  { key: 'BTC-USD', yahoo: 'BTC-USD', label: '' },
-  { key: 'ETH-USD', yahoo: 'ETH-USD', label: '' },
+  { key: 'hf_GC', sina: 'hf_GC', label: '纽约金', visible: false },
+  { key: 'hf_SI', sina: 'hf_SI', label: '纽约银', visible: false },
+  { key: 'hf_HG', sina: 'hf_HG', label: '纽约铜', visible: false },
+  { key: 'hf_CL', sina: 'hf_CL', label: '纽约原油', visible: false },
+  { key: 'hf_XAU', sina: 'hf_XAU', label: '伦敦金', visible: true },
+  { key: 'hf_XAG', sina: 'hf_XAG', label: '伦敦银', visible: true },
+  { key: 'hf_CAD', sina: 'hf_CAD', label: '伦敦铜', visible: true },
+  { key: 'sh603993', sina: 'sh603993', label: '', visible: true },
 ];
 
 async function getSymbols() {
@@ -50,20 +53,28 @@ async function getSymbols() {
   return Array.isArray(symbols) && symbols.length > 0 ? symbols : DEFAULT_SYMBOLS;
 }
 
+async function addFetchLog(entry) {
+  const { fetchLogs = [] } = await chrome.storage.local.get('fetchLogs');
+  fetchLogs.unshift({ time: Date.now(), ...entry });
+  if (fetchLogs.length > 50) fetchLogs.pop();
+  await chrome.storage.local.set({ fetchLogs });
+}
+
 async function renderPrices() {
   const { prices = {}, lastUpdate, compactMode } = await chrome.storage.local.get(['prices', 'lastUpdate', 'compactMode']);
   const symbols = await getSymbols();
+  const visibleSymbols = symbols.filter((s) => s.visible !== false);
   const container = document.getElementById('prices');
   const status = document.getElementById('status');
   container.innerHTML = '';
 
-  if (symbols.length === 0) {
-    container.innerHTML = '<div class="loading">暂无追踪品种，请前往设置添加</div>';
+  if (visibleSymbols.length === 0) {
+    container.innerHTML = '<div class="loading">当前没有启用的品种，请前往设置开启</div>';
     status.textContent = '--';
     return;
   }
 
-  for (const symbol of symbols) {
+  for (const symbol of visibleSymbols) {
     const item = prices[symbol.key];
     const card = document.createElement('div');
     card.className = 'card';
@@ -77,16 +88,7 @@ async function renderPrices() {
     title.className = 'symbol';
     title.textContent = symbol.label ? `${symbol.key} · ${symbol.label}` : symbol.key;
 
-    const session = document.createElement('span');
-    session.className = 'session-tag';
-    const sessionText = formatSession(item?.session);
-    if (sessionText) {
-      session.classList.add(item.session);
-      session.textContent = sessionText;
-    }
-
     titleRow.appendChild(title);
-    if (sessionText) titleRow.appendChild(session);
 
     const priceRow = document.createElement('div');
     priceRow.className = 'price-row';
@@ -133,106 +135,128 @@ async function renderPrices() {
   status.textContent = `更新于 ${formatTime(lastUpdate)}`;
 }
 
-async function addFetchLog(entry) {
-  const { fetchLogs = [] } = await chrome.storage.local.get('fetchLogs');
-  fetchLogs.unshift({ time: Date.now(), ...entry });
-  if (fetchLogs.length > 50) fetchLogs.pop();
-  await chrome.storage.local.set({ fetchLogs });
+async function fetchFromSina(symbol) {
+  const url = `https://hq.sinajs.cn/list=${encodeURIComponent(symbol.sina)}`;
+  try {
+    const res = await fetch(url);
+    const buffer = await res.arrayBuffer();
+    const text = new TextDecoder('gbk').decode(buffer);
+    if (!res.ok) {
+      await addFetchLog({ code: symbol.sina, url, status: res.status, ok: false, preview: text.slice(0, 300) });
+      throw new Error(`新浪 HTTP ${res.status}`);
+    }
+    const match = text.match(new RegExp(`var hq_str_${symbol.sina}="([^"]*)";`));
+    if (!match) {
+      await addFetchLog({ code: symbol.sina, url, status: res.status, ok: false, preview: text.slice(0, 300), error: '未匹配到数据' });
+      throw new Error('新浪无数据');
+    }
+    const raw = match[1];
+    if (!raw) {
+      await addFetchLog({ code: symbol.sina, url, status: res.status, ok: false, preview: text.slice(0, 300), error: '返回数据为空' });
+      throw new Error('新浪数据为空');
+    }
+    await addFetchLog({ code: symbol.sina, url, status: res.status, ok: true, preview: text.slice(0, 200) });
+    return parseSinaRaw(symbol.sina, raw);
+  } catch (err) {
+    if (!err.message?.startsWith('新浪')) {
+      await addFetchLog({ code: symbol.sina, url, status: null, ok: false, error: err.message });
+    }
+    throw err;
+  }
+}
+
+function parseSinaRaw(sinaCode, raw) {
+  const parts = raw.split(',');
+
+  if (sinaCode.startsWith('hf_')) {
+    if (parts.length < 14) throw new Error('新浪数据不完整');
+    const price = parseFloat(parts[0]);
+    const prevClose = parseFloat(parts[7]);
+    if (Number.isNaN(price) || Number.isNaN(prevClose)) {
+      throw new Error('新浪价格无效');
+    }
+    const change = price - prevClose;
+    const changePct = prevClose ? (change / prevClose) * 100 : null;
+    return {
+      price,
+      change,
+      changePct,
+      session: null,
+      currency: 'USD',
+      name: parts[13] || '',
+    };
+  }
+
+  if (/^(sh|sz|bj)\d{6}$/.test(sinaCode)) {
+    if (parts.length < 4) throw new Error('新浪数据不完整');
+    const name = parts[0] || '';
+    const price = parseFloat(parts[3]);
+    const prevClose = parseFloat(parts[2]);
+    if (Number.isNaN(price) || Number.isNaN(prevClose)) {
+      throw new Error('新浪价格无效');
+    }
+    const change = price - prevClose;
+    const changePct = prevClose ? (change / prevClose) * 100 : null;
+    return {
+      price,
+      change,
+      changePct,
+      session: null,
+      currency: 'CNY',
+      name,
+    };
+  }
+
+  throw new Error('不支持的新浪代码类型');
+}
+
+async function fetchSymbolForPopup(symbol) {
+  if (!symbol.sina) {
+    return {
+      key: symbol.key,
+      label: symbol.label,
+      price: null,
+      change: null,
+      changePct: null,
+      session: null,
+      currency: 'USD',
+      timestamp: Date.now(),
+      error: '无新浪代码',
+    };
+  }
+
+  try {
+    const parsed = await fetchFromSina(symbol);
+    return {
+      key: symbol.key,
+      label: symbol.label || parsed.name || symbol.key,
+      ...parsed,
+      timestamp: Date.now(),
+      error: null,
+    };
+  } catch (err) {
+    return {
+      key: symbol.key,
+      label: symbol.label,
+      price: null,
+      change: null,
+      changePct: null,
+      session: null,
+      currency: 'USD',
+      timestamp: Date.now(),
+      error: err.message,
+    };
+  }
 }
 
 async function fetchPricesInPopup() {
   const symbols = await getSymbols();
   if (symbols.length === 0) return;
 
-  const results = await Promise.all(symbols.map(async (symbol) => {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol.yahoo)}?interval=5m&range=1d&includePrePost=true`;
-    try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        const preview = (await res.text()).slice(0, 300);
-        await addFetchLog({ code: symbol.yahoo, url, status: res.status, ok: false, preview });
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      const result = data.chart?.result?.[0];
-      if (!result) {
-        await addFetchLog({ code: symbol.yahoo, url, status: res.status, ok: false, preview: JSON.stringify(data).slice(0, 300), error: '无数据' });
-        throw new Error('无数据');
-      }
-      await addFetchLog({ code: symbol.yahoo, url, status: res.status, ok: true, preview: JSON.stringify(data).slice(0, 200) });
-      const parsed = parseChartResult(result);
-      return {
-        key: symbol.key,
-        label: symbol.label,
-        ...parsed,
-        timestamp: Date.now(),
-        error: null,
-      };
-    } catch (err) {
-      if (!err.message?.startsWith('HTTP') && err.message !== '无数据') {
-        await addFetchLog({ code: symbol.yahoo, url, status: null, ok: false, error: err.message });
-      }
-      return {
-        key: symbol.key,
-        label: symbol.label,
-        price: null,
-        change: null,
-        changePct: null,
-        session: null,
-        currency: 'USD',
-        timestamp: Date.now(),
-        error: err.message,
-      };
-    }
-  }));
+  const results = await Promise.all(symbols.map(fetchSymbolForPopup));
   const prices = {};
   for (const r of results) prices[r.key] = r;
   await chrome.storage.local.set({ prices, lastUpdate: Date.now() });
-}
-
-function parseChartResult(result) {
-  const meta = result.meta;
-  const timestamps = result.timestamp || [];
-  const quote = result.indicators?.quote?.[0] || {};
-  const closes = quote.close || [];
-
-  let price = null;
-  let priceTime = null;
-  for (let i = closes.length - 1; i >= 0; i--) {
-    if (closes[i] != null) {
-      price = closes[i];
-      priceTime = timestamps[i] != null ? timestamps[i] * 1000 : null;
-      break;
-    }
-  }
-
-  if (price == null) {
-    price = meta.regularMarketPrice ?? meta.previousClose ?? null;
-    priceTime = meta.regularMarketTime ? meta.regularMarketTime * 1000 : null;
-  }
-
-  const prev = meta.previousClose || meta.chartPreviousClose || price;
-  const change = price != null && prev != null ? price - prev : null;
-  const changePct = change != null && prev ? (change / prev) * 100 : null;
-  const session = resolveSession(meta, priceTime);
-
-  return {
-    price,
-    change,
-    changePct,
-    session,
-    currency: meta.currency || 'USD',
-  };
-}
-
-function resolveSession(meta, priceTime) {
-  const period = meta.currentTradingPeriod;
-  if (!period || !priceTime) return null;
-  const t = Math.floor(priceTime / 1000);
-  if (period.pre && t >= period.pre.start && t < period.pre.end) return 'pre';
-  if (period.regular && t >= period.regular.start && t < period.regular.end) return 'regular';
-  if (period.post && t >= period.post.start && t < period.post.end) return 'post';
-  return null;
 }
 
 async function refreshFromPopup() {
