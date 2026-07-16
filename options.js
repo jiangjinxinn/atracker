@@ -46,20 +46,6 @@ async function setBadgeSymbol(key) {
   }
 }
 
-async function getBadgeFullNumber() {
-  const { badgeFullNumber } = await chrome.storage.local.get('badgeFullNumber');
-  return badgeFullNumber === true;
-}
-
-async function setBadgeFullNumber(value) {
-  await chrome.storage.local.set({ badgeFullNumber: value === true });
-  try {
-    await chrome.runtime.sendMessage({ action: 'refresh' });
-  } catch (e) {
-    // 后台可能未运行，忽略
-  }
-}
-
 async function getCompactMode() {
   const { compactMode } = await chrome.storage.local.get('compactMode');
   return compactMode === true;
@@ -89,7 +75,6 @@ async function setBadgeChangePct(value) {
 }
 
 async function formatBadgeValueLocal(item) {
-  const full = await getBadgeFullNumber();
   const changePctMode = await getBadgeChangePct();
 
   if (changePctMode) {
@@ -102,26 +87,17 @@ async function formatBadgeValueLocal(item) {
   const value = item?.price;
   if (value == null) return '';
 
-  if (full) {
-    const two = value.toFixed(2);
-    if (two.length <= 4) return two;
-    const one = value.toFixed(1);
-    if (one.length <= 4) return one;
-    return value.toFixed(0);
-  }
-
   const intDigits = Math.floor(Math.abs(value)).toString().length;
   let decimals = intDigits >= 4 ? 0 : Math.min(4 - intDigits, 2);
   while (decimals >= 0) {
     const text = value.toFixed(decimals);
-    if (text.length <= 4) return text;
+    if (text.replace('.', '').length <= 4) return text;
     decimals--;
   }
-  let text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 });
-  if (text.length > 4) {
-    text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 0 });
-  }
-  return text;
+
+  const magnitude = Math.floor(Math.log10(Math.abs(value)));
+  const scaled = value / Math.pow(10, magnitude - 3);
+  return Math.round(scaled).toString();
 }
 
 async function applyBadgeSettings() {
@@ -270,13 +246,6 @@ async function renderList() {
   });
 }
 
-async function renderBadgeFullToggle() {
-  const full = await getBadgeFullNumber();
-  const toggle = document.getElementById('badge-full-toggle');
-  toggle.classList.toggle('active', full);
-  toggle.setAttribute('aria-label', full ? '完整数字已开启' : '完整数字已关闭');
-}
-
 async function renderCompactToggle() {
   const compact = await getCompactMode();
   const toggle = document.getElementById('compact-toggle');
@@ -380,7 +349,6 @@ async function initTheme() {
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   renderList();
-  renderBadgeFullToggle();
   renderCompactToggle();
   renderBadgeChangePctToggle();
   applyBadgeSettings();
@@ -397,14 +365,6 @@ document.addEventListener('DOMContentLoaded', () => {
     await chrome.storage.local.set({ fetchLogs: [] });
     await renderLogs();
     showMessage('日志已清空');
-  });
-
-  document.getElementById('badge-full-toggle').addEventListener('click', async () => {
-    const next = !(await getBadgeFullNumber());
-    await setBadgeFullNumber(next);
-    await renderBadgeFullToggle();
-    await applyBadgeSettings();
-    showBadgeMessage(next ? '角标将显示完整数字' : '角标将缩略显示');
   });
 
   document.getElementById('compact-toggle').addEventListener('click', async () => {

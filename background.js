@@ -186,7 +186,7 @@ async function refreshPrices() {
 }
 
 async function formatBadgeValue(item) {
-  const { badgeFullNumber, badgeChangePct } = await chrome.storage.local.get(['badgeFullNumber', 'badgeChangePct']);
+  const { badgeChangePct } = await chrome.storage.local.get('badgeChangePct');
 
   if (badgeChangePct) {
     const value = item?.changePct;
@@ -198,26 +198,17 @@ async function formatBadgeValue(item) {
   const value = item?.price;
   if (value == null) return '';
 
-  if (badgeFullNumber) {
-    const two = value.toFixed(2);
-    if (two.length <= 4) return two;
-    const one = value.toFixed(1);
-    if (one.length <= 4) return one;
-    return value.toFixed(0);
-  }
-
   const intDigits = Math.floor(Math.abs(value)).toString().length;
   let decimals = intDigits >= 4 ? 0 : Math.min(4 - intDigits, 2);
   while (decimals >= 0) {
     const text = value.toFixed(decimals);
-    if (text.length <= 4) return text;
+    if (text.replace('.', '').length <= 4) return text;
     decimals--;
   }
-  let text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 });
-  if (text.length > 4) {
-    text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 0 });
-  }
-  return text;
+
+  const magnitude = Math.floor(Math.log10(Math.abs(value)));
+  const scaled = value / Math.pow(10, magnitude - 3);
+  return Math.round(scaled).toString();
 }
 
 async function updateBadge(results, prices) {
