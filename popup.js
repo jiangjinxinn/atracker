@@ -9,7 +9,10 @@ applyTheme();
 
 function formatPrice(value) {
   if (value == null) return '--';
-  return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const intDigits = Math.floor(Math.abs(value)).toString().length;
+  if (intDigits >= 4) return value.toFixed(0);
+  const decimals = Math.min(4 - intDigits, 2);
+  return value.toFixed(decimals);
 }
 
 function formatChange(value) {
