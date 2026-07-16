@@ -199,11 +199,13 @@ async function formatBadgeValue(item) {
   if (value == null) return '';
 
   if (badgeFullNumber) {
-    const two = value.toFixed(2);
-    if (two.length <= 4) return two;
-    const one = value.toFixed(1);
-    if (one.length <= 4) return one;
-    return value.toFixed(0);
+    const intDigits = Math.floor(Math.abs(value)).toString().length;
+    let decimals = intDigits >= 4 ? 0 : Math.min(4 - intDigits, 2);
+    while (decimals >= 0) {
+      const text = value.toFixed(decimals);
+      if (text.length <= 4) return text;
+      decimals--;
+    }
   }
 
   let text = value.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 });
