@@ -13,6 +13,9 @@ const DEFAULT_BADGE_SYMBOL = 'hf_XAU';
 
 const ALARM_NAME = 'refresh-prices';
 const UPDATE_INTERVAL_MIN = 1;
+const BYPASS_SINA_PROXY_KEY = 'bypassSinaProxy';
+
+let refreshQueue = Promise.resolve();
 
 async function getSymbols() {
   const { symbols } = await chrome.storage.local.get('symbols');
@@ -26,6 +29,83 @@ async function addFetchLog(entry) {
   await chrome.storage.local.set({ fetchLogs });
 }
 
+function getProxySetting() {
+  return new Promise((resolve, reject) => {
+    chrome.proxy.settings.get({ incognito: false }, (details) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve(details);
+    });
+  });
+}
+
+function setProxySetting(value) {
+  return new Promise((resolve, reject) => {
+    chrome.proxy.settings.set({ value, scope: 'regular' }, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function clearProxySetting() {
+  return new Promise((resolve, reject) => {
+    chrome.proxy.settings.clear({ scope: 'regular' }, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function restoreProxySetting(previousSetting) {
+  if (previousSetting?.levelOfControl === 'controlled_by_this_extension' && previousSetting.value) {
+    await setProxySetting(previousSetting.value);
+    return;
+  }
+  await clearProxySetting();
+}
+
+async function runWithSinaDirectProxy(task) {
+  const { [BYPASS_SINA_PROXY_KEY]: bypassSinaProxy = false } = await chrome.storage.local.get(BYPASS_SINA_PROXY_KEY);
+  if (!bypassSinaProxy || !chrome.proxy?.settings) {
+    return task();
+  }
+
+  let previousSetting = null;
+  try {
+    previousSetting = await getProxySetting();
+    await setProxySetting({ mode: 'direct' });
+  } catch (err) {
+    await addFetchLog({ code: 'proxy', url: 'chrome.proxy.settings', status: null, ok: false, error: `直连模式切换失败：${err.message}` });
+    return task();
+  }
+
+  try {
+    return await task();
+  } finally {
+    try {
+      await restoreProxySetting(previousSetting);
+    } catch (err) {
+      await addFetchLog({ code: 'proxy', url: 'chrome.proxy.settings', status: null, ok: false, error: `代理设置恢复失败：${err.message}` });
+    }
+  }
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function fetchFromSina(symbol) {
   const url = `https://hq.sinajs.cn/list=${encodeURIComponent(symbol.sina)}`;
   try {
@@ -36,7 +116,7 @@ async function fetchFromSina(symbol) {
       await addFetchLog({ code: symbol.sina, url, status: res.status, ok: false, preview: text.slice(0, 300) });
       throw new Error(`新浪 HTTP ${res.status}`);
     }
-    const match = text.match(new RegExp(`var hq_str_${symbol.sina}="([^"]*)";`));
+    const match = text.match(new RegExp(`var hq_str_${escapeRegExp(symbol.sina)}="([^"]*)";`));
     if (!match) {
       await addFetchLog({ code: symbol.sina, url, status: res.status, ok: false, preview: text.slice(0, 300), error: '未匹配到数据' });
       throw new Error('新浪无数据');
@@ -56,49 +136,126 @@ async function fetchFromSina(symbol) {
   }
 }
 
+function parseSinaNumber(value) {
+  const number = parseFloat(value);
+  return Number.isNaN(number) ? null : number;
+}
+
+function requireSinaNumber(value) {
+  const number = parseSinaNumber(value);
+  if (number == null) throw new Error('新浪价格无效');
+  return number;
+}
+
+function buildQuote({ price, prevClose = null, change = null, changePct = null, session = null, currency = 'USD', name = '' }) {
+  const resolvedChange = change ?? (prevClose != null ? price - prevClose : null);
+  const resolvedChangePct = changePct ?? (prevClose ? (resolvedChange / prevClose) * 100 : null);
+  return {
+    price,
+    change: resolvedChange,
+    changePct: resolvedChangePct,
+    session,
+    currency,
+    name,
+  };
+}
+
+function parseGenericSinaRaw(parts) {
+  const price = parts.map(parseSinaNumber).find((value) => value != null);
+  if (price == null) throw new Error('新浪价格无效');
+  const name = parts.find((part) => part && parseSinaNumber(part) == null && !/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(part)) || '';
+  return buildQuote({ price, name });
+}
+
+function getUsMarketSession() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  const weekday = get('weekday');
+  if (weekday === 'Sat' || weekday === 'Sun') return null;
+  const minutes = (parseInt(get('hour'), 10) % 24) * 60 + parseInt(get('minute'), 10);
+  if (minutes >= 240 && minutes < 570) return 'pre';
+  if (minutes >= 570 && minutes < 960) return 'regular';
+  if (minutes >= 960 && minutes < 1200) return 'post';
+  return null;
+}
+
 function parseSinaRaw(sinaCode, raw) {
   const parts = raw.split(',');
 
   if (sinaCode.startsWith('hf_')) {
     if (parts.length < 14) throw new Error('新浪数据不完整');
-    const price = parseFloat(parts[0]);
-    const prevClose = parseFloat(parts[7]);
-    if (Number.isNaN(price) || Number.isNaN(prevClose)) {
-      throw new Error('新浪价格无效');
-    }
-    const change = price - prevClose;
-    const changePct = prevClose ? (change / prevClose) * 100 : null;
-    return {
+    const price = requireSinaNumber(parts[0]);
+    const prevClose = requireSinaNumber(parts[7]);
+    return buildQuote({
       price,
-      change,
-      changePct,
-      session: null,
+      prevClose,
       currency: 'USD',
       name: parts[13] || '',
-    };
+    });
   }
 
   if (/^(sh|sz|bj)\d{6}$/.test(sinaCode)) {
     if (parts.length < 4) throw new Error('新浪数据不完整');
-    const name = parts[0] || '';
-    const price = parseFloat(parts[3]);
-    const prevClose = parseFloat(parts[2]);
-    if (Number.isNaN(price) || Number.isNaN(prevClose)) {
-      throw new Error('新浪价格无效');
-    }
-    const change = price - prevClose;
-    const changePct = prevClose ? (change / prevClose) * 100 : null;
-    return {
+    const price = requireSinaNumber(parts[3]);
+    const prevClose = requireSinaNumber(parts[2]);
+    return buildQuote({
       price,
-      change,
-      changePct,
-      session: null,
+      prevClose,
       currency: 'CNY',
-      name,
-    };
+      name: parts[0] || '',
+    });
   }
 
-  throw new Error('不支持的新浪代码类型');
+  if (/^hk\d{5}$/.test(sinaCode)) {
+    if (parts.length < 9) throw new Error('新浪数据不完整');
+    const price = requireSinaNumber(parts[6]);
+    const prevClose = requireSinaNumber(parts[3]);
+    return buildQuote({
+      price,
+      prevClose,
+      change: parseSinaNumber(parts[7]),
+      changePct: parseSinaNumber(parts[8]),
+      currency: 'HKD',
+      name: parts[1] || parts[0] || '',
+    });
+  }
+
+  if (sinaCode.startsWith('gb_')) {
+    if (parts.length < 5) throw new Error('新浪数据不完整');
+    const price = requireSinaNumber(parts[1]);
+    const name = parts[0] || '';
+    const session = getUsMarketSession();
+    // 盘前/盘后优先展示扩展时段数据：21=价格，22=涨跌幅，23=涨跌额
+    if ((session === 'pre' || session === 'post') && parts.length >= 24) {
+      const extPrice = parseSinaNumber(parts[21]);
+      if (extPrice != null && extPrice > 0) {
+        return buildQuote({
+          price: extPrice,
+          change: parseSinaNumber(parts[23]),
+          changePct: parseSinaNumber(parts[22]),
+          session,
+          currency: 'USD',
+          name,
+        });
+      }
+    }
+    return buildQuote({
+      price,
+      change: parseSinaNumber(parts[4]),
+      changePct: parseSinaNumber(parts[2]),
+      session: session === 'regular' ? 'regular' : null,
+      currency: 'USD',
+      name,
+    });
+  }
+
+  return parseGenericSinaRaw(parts);
 }
 
 async function fetchSymbol(symbol) {
@@ -173,16 +330,24 @@ async function updateActionTitle(results, symbols) {
 }
 
 async function refreshPrices() {
-  const symbols = await getSymbols();
-  const results = await Promise.all(symbols.map(fetchSymbol));
-  const prices = {};
-  for (const r of results) prices[r.key] = r;
-  await chrome.storage.local.set({ prices, lastUpdate: Date.now() });
+  await ensureSinaRefererRule();
+  return runWithSinaDirectProxy(async () => {
+    const symbols = await getSymbols();
+    const results = await Promise.all(symbols.map(fetchSymbol));
+    const prices = {};
+    for (const r of results) prices[r.key] = r;
+    await chrome.storage.local.set({ prices, lastUpdate: Date.now() });
 
-  await updateBadge(results, prices);
-  await updateActionTitle(results, symbols);
+    await updateBadge(results, prices);
+    await updateActionTitle(results, symbols);
 
-  chrome.runtime.sendMessage({ action: 'prices-updated' }).catch(() => {});
+    chrome.runtime.sendMessage({ action: 'prices-updated' }).catch(() => {});
+  });
+}
+
+function scheduleRefresh() {
+  refreshQueue = refreshQueue.catch(() => {}).then(refreshPrices);
+  return refreshQueue;
 }
 
 async function formatBadgeValue(item) {
@@ -254,8 +419,7 @@ async function ensureSinaRefererRule() {
       ],
     },
     condition: {
-      initiatorDomains: [chrome.runtime.id],
-      urlFilter: '|https://hq.sinajs.cn/',
+      requestDomains: ['hq.sinajs.cn'],
       resourceTypes: ['xmlhttprequest'],
     },
   };
@@ -270,22 +434,23 @@ async function ensureSinaRefererRule() {
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM_NAME) refreshPrices();
+  if (alarm.name === ALARM_NAME) scheduleRefresh();
 });
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: UPDATE_INTERVAL_MIN });
-  await ensureSinaRefererRule();
-  refreshPrices();
+  scheduleRefresh();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  refreshPrices();
+  scheduleRefresh();
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'refresh') {
-    refreshPrices().then(() => sendResponse({ ok: true }));
+    scheduleRefresh()
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 });
@@ -299,5 +464,5 @@ chrome.commands.onCommand.addListener(async (command) => {
     await chrome.storage.local.set({ badgeSymbol: '' });
     chrome.action.setBadgeText({ text: '' });
   }
-  refreshPrices();
+  scheduleRefresh();
 });

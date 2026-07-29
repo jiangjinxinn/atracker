@@ -74,6 +74,25 @@ async function setBadgeChangePct(value) {
   }
 }
 
+async function getBypassSinaProxy() {
+  const { bypassSinaProxy } = await chrome.storage.local.get('bypassSinaProxy');
+  return bypassSinaProxy === true;
+}
+
+function refreshInBackground() {
+  try {
+    const pending = chrome.runtime.sendMessage({ action: 'refresh' });
+    if (pending?.catch) pending.catch(() => {});
+  } catch (e) {
+    // 后台可能未运行，忽略
+  }
+}
+
+async function setBypassSinaProxy(value) {
+  await chrome.storage.local.set({ bypassSinaProxy: value === true });
+  refreshInBackground();
+}
+
 async function formatBadgeValueLocal(item) {
   const changePctMode = await getBadgeChangePct();
 
@@ -131,6 +150,13 @@ function showBadgeMessage(text, isError = false) {
   setTimeout(() => { el.textContent = ''; el.className = 'badge-message'; }, 3000);
 }
 
+function showNetworkMessage(text, isError = false) {
+  const el = document.getElementById('network-message');
+  el.textContent = text;
+  el.className = 'badge-message ' + (isError ? 'error' : '');
+  setTimeout(() => { el.textContent = ''; el.className = 'badge-message'; }, 3000);
+}
+
 function normalizeCode(raw) {
   const input = raw.trim();
   if (!input) return null;
@@ -138,10 +164,33 @@ function normalizeCode(raw) {
   const lower = input.toLowerCase();
 
   if (lower.startsWith('hf_')) {
-    return { key: lower, sina: lower, label: '', visible: true };
+    const code = `hf_${input.slice(3).toUpperCase()}`;
+    return { key: code, sina: code, label: '', visible: true };
   }
 
   if (/^(sh|sz|bj)\d{6}$/.test(lower)) {
+    return { key: lower, sina: lower, label: '', visible: true };
+  }
+
+  if (/^hk\d{5}$/.test(lower)) {
+    return { key: lower, sina: lower, label: '', visible: true };
+  }
+
+  if (/^\d{5}$/.test(input)) {
+    const code = `hk${input}`;
+    return { key: code, sina: code, label: '', visible: true };
+  }
+
+  if (/^gb_[a-z0-9.]+$/.test(lower)) {
+    return { key: lower, sina: lower, label: '', visible: true };
+  }
+
+  if (/^[a-z][a-z0-9.]{0,9}$/.test(lower)) {
+    const code = `gb_${lower}`;
+    return { key: code, sina: code, label: '', visible: true };
+  }
+
+  if (/^[a-z][a-z0-9_]{1,40}$/.test(lower)) {
     return { key: lower, sina: lower, label: '', visible: true };
   }
 
@@ -259,6 +308,13 @@ async function renderBadgeChangePctToggle() {
   toggle.setAttribute('aria-label', show ? '角标显示涨跌幅已开启' : '角标显示涨跌幅已关闭');
 }
 
+async function renderBypassSinaProxyToggle() {
+  const bypass = await getBypassSinaProxy();
+  const toggle = document.getElementById('bypass-sina-proxy-toggle');
+  toggle.classList.toggle('active', bypass);
+  toggle.setAttribute('aria-label', bypass ? '新浪请求临时直连已开启' : '新浪请求临时直连已关闭');
+}
+
 async function renderLogs() {
   const { fetchLogs = [] } = await chrome.storage.local.get('fetchLogs');
   const area = document.getElementById('logs-area');
@@ -283,7 +339,7 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
   const normalized = normalizeCode(codeInput.value);
 
   if (!normalized) {
-    showMessage('仅支持新浪代码：期货（hf_ 开头）或 A 股（sh/sz/bj+6 位数字）', true);
+    showMessage('请输入新浪代码：期货 hf_GC、A 股 sh600519、港股 hk00700/00700、美股 gb_aapl/AAPL 等', true);
     return;
   }
 
@@ -350,6 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderList();
   renderCompactToggle();
   renderBadgeChangePctToggle();
+  renderBypassSinaProxyToggle();
   applyBadgeSettings();
 
   document.getElementById('toggle-logs').addEventListener('click', toggleLogs);
@@ -379,5 +436,14 @@ document.addEventListener('DOMContentLoaded', () => {
     await renderBadgeChangePctToggle();
     await applyBadgeSettings();
     showBadgeMessage(next ? '角标将显示涨跌幅' : '角标将显示价格');
+  });
+
+  document.getElementById('bypass-sina-proxy-toggle').addEventListener('click', async () => {
+    const next = !(await getBypassSinaProxy());
+    await setBypassSinaProxy(next);
+    const toggle = document.getElementById('bypass-sina-proxy-toggle');
+    toggle.classList.toggle('active', next);
+    toggle.setAttribute('aria-label', next ? '新浪请求临时直连已开启' : '新浪请求临时直连已关闭');
+    showNetworkMessage(next ? '已开启新浪请求临时直连' : '已关闭新浪请求临时直连');
   });
 });

@@ -2,11 +2,12 @@
   "manifest_version": 3,
   "name": "A Tracker",
   "version": "1.0.0",
-  "description": "追踪纽约金、纽约银、纽约铜、纽约原油及 A 股实时价格",
+  "description": "追踪贵金属、期货、A 股、港股、美股等实时价格",
   "permissions": [
     "storage",
     "alarms",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "proxy"
   ],
   "host_permissions": [
     "https://hq.sinajs.cn/*"

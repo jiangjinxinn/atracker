@@ -52,11 +52,22 @@
     </div>
 
     <div class="section">
+      <h2>网络设置</h2>
+      <p class="hint">开启后，刷新新浪行情时会临时将 Chrome 代理切换为直连，请求结束后自动恢复原代理配置。</p>
+      <div class="setting-row setting-row-wide">
+        <span class="setting-label">新浪请求临时直连</span>
+        <button type="button" id="bypass-sina-proxy-toggle" class="toggle"></button>
+      </div>
+      <p class="setting-note">注意：Chrome 不支持仅单个扩展请求绕过系统代理，此开关会在行情请求期间短暂影响当前 Chrome 配置文件的网络代理。</p>
+      <div id="network-message" class="badge-message"></div>
+    </div>
+
+    <div class="section">
       <h2>品种设置</h2>
-      <p class="hint">全部行情来自新浪财经，支持新浪期货代码（hf_ 开头，如 hf_GC、hf_SI、hf_HG、hf_CL）和 A 股代码（sh/sz/bj+6 位数字，如 sh600519、sz000001）。点击已启用的角标开关可关闭角标。</p>
+      <p class="hint">全部行情来自新浪财经，支持新浪期货代码（hf_ 开头，如 hf_GC）、A 股代码（sh/sz/bj+6 位数字，如 sh600519）、港股代码（hk+5 位数字，如 hk00700，也可直接输入 00700）和美股代码（gb_ 前缀或股票简称，如 gb_aapl / AAPL）。点击已启用的角标开关可关闭角标。</p>
 
       <form id="add-form" class="add-form">
-        <input type="text" id="code" placeholder="新浪代码（如 hf_GC 或 sh600519）" required>
+        <input type="text" id="code" placeholder="如 hf_GC、sh600519、hk00700、AAPL" required>
         <button type="submit" class="btn">添加</button>
       </form>
 

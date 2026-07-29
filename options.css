@@ -232,9 +232,21 @@ h1, h2 {
   max-width: 320px;
 }
 
+.setting-row-wide {
+  max-width: 520px;
+}
+
 .setting-label {
   font-size: 14px;
   color: var(--text-primary);
+}
+
+.setting-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 10px;
+  max-width: 520px;
 }
 
 .badge-message {
