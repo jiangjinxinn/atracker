@@ -7,101 +7,148 @@
 </head>
 <body>
   <div class="container">
-    <div class="section">
-      <h1>外观</h1>
-      <div class="theme-options">
-        <button type="button" class="theme-icon-btn" data-theme="system" aria-label="跟随系统">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-            <line x1="8" y1="21" x2="16" y2="21"></line>
-            <line x1="12" y1="17" x2="12" y2="21"></line>
-          </svg>
-        </button>
-        <button type="button" class="theme-icon-btn" data-theme="dark" aria-label="夜间模式">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-          </svg>
-        </button>
-        <button type="button" class="theme-icon-btn" data-theme="light" aria-label="日间模式">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="5"></circle>
-            <line x1="12" y1="1" x2="12" y2="3"></line>
-            <line x1="12" y1="21" x2="12" y2="23"></line>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-            <line x1="1" y1="12" x2="3" y2="12"></line>
-            <line x1="21" y1="12" x2="23" y2="12"></line>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-          </svg>
-        </button>
+    <header class="page-header">
+      <div class="page-title-row">
+        <div class="logo-mark">A</div>
+        <div>
+          <h1 class="page-title">A Tracker 设置</h1>
+          <p class="page-subtitle">行情角标 · 品种管理 · 网络与日志</p>
+        </div>
       </div>
-    </div>
+    </header>
 
-    <div class="section">
-      <h2>角标设置</h2>
-      <div class="setting-row">
-        <span class="setting-label">紧凑模式（一行一个品种）</span>
-        <button type="button" id="compact-toggle" class="toggle"></button>
+    <section class="card">
+      <div class="card-header">
+        <h2>外观</h2>
+        <p class="card-desc">选择设置页与弹窗的主题模式。</p>
       </div>
-      <div class="setting-row" style="margin-top: 12px;">
-        <span class="setting-label">角标显示涨跌幅（不含 %）</span>
-        <button type="button" id="badge-change-pct-toggle" class="toggle"></button>
+      <div class="card-body">
+        <div class="theme-options">
+          <button type="button" class="theme-icon-btn" data-theme="system" aria-label="跟随系统">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            <span>跟随系统</span>
+          </button>
+          <button type="button" class="theme-icon-btn" data-theme="dark" aria-label="夜间模式">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+            <span>夜间</span>
+          </button>
+          <button type="button" class="theme-icon-btn" data-theme="light" aria-label="日间模式">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <span>日间</span>
+          </button>
+        </div>
       </div>
-      <div id="badge-message" class="badge-message"></div>
-    </div>
+    </section>
 
-    <div class="section">
-      <h2>网络设置</h2>
-      <p class="hint">开启后，刷新新浪行情时会临时将 Chrome 代理切换为直连，请求结束后自动恢复原代理配置。</p>
-      <div class="setting-row setting-row-wide">
-        <span class="setting-label">新浪请求临时直连</span>
-        <button type="button" id="bypass-sina-proxy-toggle" class="toggle"></button>
+    <section class="card">
+      <div class="card-header">
+        <h2>角标设置</h2>
+        <p class="card-desc">控制扩展图标角标与弹窗列表的展示方式。</p>
       </div>
-      <p class="setting-note">注意：Chrome 不支持仅单个扩展请求绕过系统代理，此开关会在行情请求期间短暂影响当前 Chrome 配置文件的网络代理。</p>
-      <div id="network-message" class="badge-message"></div>
-    </div>
-
-    <div class="section">
-      <h2>品种设置</h2>
-      <p class="hint">全部行情来自新浪财经，支持新浪期货代码（hf_ 开头，如 hf_GC）、A 股代码（sh/sz/bj+6 位数字，如 sh600519）、港股代码（hk+5 位数字，如 hk00700，也可直接输入 00700）和美股代码（gb_ 前缀或股票简称，如 gb_aapl / AAPL）。点击已启用的角标开关可关闭角标。</p>
-
-      <form id="add-form" class="add-form">
-        <input type="text" id="code" placeholder="如 hf_GC、sh600519、hk00700、AAPL" required>
-        <button type="submit" class="btn">添加</button>
-      </form>
-
-      <div id="message" class="message"></div>
-
-      <table class="table">
-        <thead>
-          <tr>
-            <th>代码</th>
-            <th>新浪</th>
-            <th>显示</th>
-            <th>排序</th>
-            <th>操作</th>
-            <th>角标</th>
-          </tr>
-        </thead>
-        <tbody id="symbol-list"></tbody>
-      </table>
-
-      <div class="actions">
-        <button id="reset" class="btn btn-secondary">恢复默认</button>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-text">
+            <span class="setting-label">紧凑模式</span>
+            <span class="setting-sub">弹窗中一行显示一个品种</span>
+          </div>
+          <button type="button" id="compact-toggle" class="toggle"></button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-text">
+            <span class="setting-label">角标显示涨跌幅</span>
+            <span class="setting-sub">以涨跌幅（不含 %）代替价格显示</span>
+          </div>
+          <button type="button" id="badge-change-pct-toggle" class="toggle"></button>
+        </div>
+        <div id="badge-message" class="badge-message"></div>
       </div>
-    </div>
+    </section>
 
-    <div class="section">
-      <h2>拉取日志</h2>
-      <p class="hint">最近 50 次行情拉取记录，包含请求状态、返回预览和错误信息，方便排查网络问题。</p>
-      <div class="actions">
-        <button id="toggle-logs" class="btn">查看日志</button>
-        <button id="copy-logs" class="btn btn-secondary">复制日志</button>
-        <button id="clear-logs" class="btn btn-danger">清空日志</button>
+    <section class="card">
+      <div class="card-header">
+        <h2>网络设置</h2>
+        <p class="card-desc">开启后，刷新新浪行情时会临时将 Chrome 代理切换为直连，请求结束后自动恢复原代理配置。</p>
       </div>
-      <textarea id="logs-area" class="logs-area" rows="10" readonly style="display: none; width: 100%; margin-top: 12px; font-family: monospace; font-size: 12px;"></textarea>
-    </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-text">
+            <span class="setting-label">新浪请求临时直连</span>
+            <span class="setting-sub">仅在行情请求期间生效</span>
+          </div>
+          <button type="button" id="bypass-sina-proxy-toggle" class="toggle"></button>
+        </div>
+        <p class="setting-note">注意：Chrome 不支持仅单个扩展请求绕过系统代理，此开关会在行情请求期间短暂影响当前 Chrome 配置文件的网络代理。</p>
+        <div id="network-message" class="badge-message"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <h2>品种设置</h2>
+        <p class="card-desc">全部行情来自新浪财经，支持新浪期货代码（hf_ 开头，如 hf_GC）、A 股代码（sh/sz/bj+6 位数字，如 sh600519）、港股代码（hk+5 位数字，如 hk00700，也可直接输入 00700）和美股代码（gb_ 前缀或股票简称，如 gb_aapl / AAPL）。点击已启用的角标开关可关闭角标。</p>
+      </div>
+      <div class="card-body">
+        <form id="add-form" class="add-form">
+          <input type="text" id="code" placeholder="如 hf_GC、sh600519、hk00700、AAPL" required>
+          <button type="submit" class="btn">＋ 添加</button>
+        </form>
+
+        <div id="message" class="message"></div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>代码</th>
+                <th>新浪</th>
+                <th>显示</th>
+                <th>排序</th>
+                <th>操作</th>
+                <th>角标</th>
+              </tr>
+            </thead>
+            <tbody id="symbol-list"></tbody>
+          </table>
+        </div>
+
+        <div class="actions">
+          <button id="reset" class="btn btn-secondary">恢复默认</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <h2>拉取日志</h2>
+        <p class="card-desc">最近 50 次行情拉取记录，包含请求状态、返回预览和错误信息，方便排查网络问题。</p>
+      </div>
+      <div class="card-body">
+        <div class="actions actions-start">
+          <button id="toggle-logs" class="btn">查看日志</button>
+          <button id="copy-logs" class="btn btn-secondary">复制日志</button>
+          <button id="clear-logs" class="btn btn-danger">清空日志</button>
+        </div>
+        <textarea id="logs-area" class="logs-area" rows="10" readonly style="display: none;"></textarea>
+      </div>
+    </section>
+
+    <footer class="page-footer">A Tracker · 数据来源：新浪财经</footer>
   </div>
   <script src="options.js"></script>
 </body>

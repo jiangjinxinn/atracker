@@ -367,7 +367,6 @@ chrome.runtime.onMessage.addListener((request) => {
 
 document.addEventListener('DOMContentLoaded', async () => {
   await renderPrices();
-  document.getElementById('refresh').addEventListener('click', refreshFromPopup);
   document.getElementById('settings').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
