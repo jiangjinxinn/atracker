@@ -60,6 +60,20 @@ async function setCompactMode(value) {
   }
 }
 
+async function getBadgeEnabled() {
+  const { badgeEnabled } = await chrome.storage.local.get('badgeEnabled');
+  return badgeEnabled !== false;
+}
+
+async function setBadgeEnabled(value) {
+  await chrome.storage.local.set({ badgeEnabled: value === true });
+  try {
+    await chrome.runtime.sendMessage({ action: 'refresh' });
+  } catch (e) {
+    // 后台可能未运行，忽略
+  }
+}
+
 async function getBadgeChangePct() {
   const { badgeChangePct } = await chrome.storage.local.get('badgeChangePct');
   return badgeChangePct === true;
@@ -99,8 +113,7 @@ async function formatBadgeValueLocal(item) {
   if (changePctMode) {
     const value = item?.changePct;
     if (value == null) return '';
-    const sign = value < 0 ? '-' : '';
-    return `${sign}${Math.abs(value).toFixed(2)}`;
+    return Math.abs(value).toFixed(2);
   }
 
   const value = item?.price;
@@ -118,7 +131,15 @@ async function formatBadgeValueLocal(item) {
   return rounded.toString().padStart(4, '0');
 }
 
+function getBadgeColorByDailyChangePct(item) {
+  return item?.changePct < 0 ? '#f87171' : '#10b981';
+}
+
 async function applyBadgeSettings() {
+  if (!(await getBadgeEnabled())) {
+    chrome.action.setBadgeText({ text: '' });
+    return;
+  }
   const symbols = await getSymbols();
   const currentBadge = await getBadgeSymbol(symbols);
   if (!currentBadge) {
@@ -129,8 +150,9 @@ async function applyBadgeSettings() {
   const item = prices[currentBadge];
   const badgeText = await formatBadgeValueLocal(item);
   if (badgeText) {
+    const badgeColor = getBadgeColorByDailyChangePct(item);
     chrome.action.setBadgeText({ text: badgeText });
-    chrome.action.setBadgeBackgroundColor({ color: '#10b981' });
+    chrome.action.setBadgeBackgroundColor({ color: badgeColor });
   } else {
     chrome.action.setBadgeText({ text: '' });
   }
@@ -157,11 +179,21 @@ function showNetworkMessage(text, isError = false) {
   setTimeout(() => { el.textContent = ''; el.className = 'badge-message'; }, 3000);
 }
 
+function normalizeSinaGlobalBondCode(input) {
+  const match = /^(?:(?:globalbd|gb)_)?([a-z]{2}\d{1,2}yt)$/i.exec(input.trim());
+  if (!match) return null;
+  const symbol = match[1].toUpperCase();
+  return { key: symbol, sina: `globalbd_${match[1].toLowerCase()}`, label: '', visible: true };
+}
+
 function normalizeCode(raw) {
   const input = raw.trim();
   if (!input) return null;
 
   const lower = input.toLowerCase();
+
+  const globalBond = normalizeSinaGlobalBondCode(input);
+  if (globalBond) return globalBond;
 
   if (lower.startsWith('hf_')) {
     const code = `hf_${input.slice(3).toUpperCase()}`;
@@ -294,6 +326,13 @@ async function renderList() {
   });
 }
 
+async function renderBadgeEnabledToggle() {
+  const enabled = await getBadgeEnabled();
+  const toggle = document.getElementById('badge-enabled-toggle');
+  toggle.classList.toggle('active', enabled);
+  toggle.setAttribute('aria-label', enabled ? '角标已开启' : '角标已关闭');
+}
+
 async function renderCompactToggle() {
   const compact = await getCompactMode();
   const toggle = document.getElementById('compact-toggle');
@@ -339,7 +378,7 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
   const normalized = normalizeCode(codeInput.value);
 
   if (!normalized) {
-    showMessage('请输入新浪代码：期货 hf_GC、A 股 sh600519、港股 hk00700/00700、美股 gb_aapl/AAPL 等', true);
+    showMessage('请输入新浪代码：期货 hf_GC、A 股 sh600519、港股 hk00700/00700、美股 gb_aapl/AAPL、全球债券 US30YT 等', true);
     return;
   }
 
@@ -404,6 +443,7 @@ async function initTheme() {
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   renderList();
+  renderBadgeEnabledToggle();
   renderCompactToggle();
   renderBadgeChangePctToggle();
   renderBypassSinaProxyToggle();
@@ -421,6 +461,14 @@ document.addEventListener('DOMContentLoaded', () => {
     await chrome.storage.local.set({ fetchLogs: [] });
     await renderLogs();
     showMessage('日志已清空');
+  });
+
+  document.getElementById('badge-enabled-toggle').addEventListener('click', async () => {
+    const next = !(await getBadgeEnabled());
+    await setBadgeEnabled(next);
+    await renderBadgeEnabledToggle();
+    await applyBadgeSettings();
+    showBadgeMessage(next ? '已开启角标显示' : '已关闭角标显示');
   });
 
   document.getElementById('compact-toggle').addEventListener('click', async () => {

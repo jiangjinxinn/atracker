@@ -64,6 +64,13 @@
       <div class="card-body">
         <div class="setting-row">
           <div class="setting-text">
+            <span class="setting-label">显示角标</span>
+            <span class="setting-sub">关闭后扩展图标不再显示角标，也可右键扩展图标直接切换</span>
+          </div>
+          <button type="button" id="badge-enabled-toggle" class="toggle"></button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-text">
             <span class="setting-label">紧凑模式</span>
             <span class="setting-sub">弹窗中一行显示一个品种</span>
           </div>
@@ -105,7 +112,7 @@
       </div>
       <div class="card-body">
         <form id="add-form" class="add-form">
-          <input type="text" id="code" placeholder="如 hf_GC、sh600519、hk00700、AAPL" required>
+          <input type="text" id="code" placeholder="如 hf_GC、sh600519、hk00700、AAPL、US30YT" required>
           <button type="submit" class="btn">＋ 添加</button>
         </form>
 

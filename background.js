@@ -14,12 +14,25 @@ const DEFAULT_BADGE_SYMBOL = 'hf_XAU';
 const ALARM_NAME = 'refresh-prices';
 const UPDATE_INTERVAL_MIN = 1;
 const BYPASS_SINA_PROXY_KEY = 'bypassSinaProxy';
+const BADGE_ENABLED_KEY = 'badgeEnabled';
+const BADGE_MENU_ID = 'toggle-badge-enabled';
 
 let refreshQueue = Promise.resolve();
 
 async function getSymbols() {
   const { symbols } = await chrome.storage.local.get('symbols');
   return Array.isArray(symbols) && symbols.length > 0 ? symbols : DEFAULT_SYMBOLS;
+}
+
+async function getBadgeEnabled() {
+  const { [BADGE_ENABLED_KEY]: badgeEnabled } = await chrome.storage.local.get(BADGE_ENABLED_KEY);
+  return badgeEnabled !== false;
+}
+
+async function setBadgeEnabled(value) {
+  await chrome.storage.local.set({ [BADGE_ENABLED_KEY]: value === true });
+  if (value !== true) chrome.action.setBadgeText({ text: '' });
+  scheduleRefresh();
 }
 
 async function addFetchLog(entry) {
@@ -107,7 +120,7 @@ function escapeRegExp(value) {
 }
 
 async function fetchFromSina(symbol) {
-  const url = `https://hq.sinajs.cn/list=${encodeURIComponent(symbol.sina)}`;
+  const url = `https://hq.sinajs.cn/rn=${Date.now()}&list=${encodeURIComponent(symbol.sina)}`;
   try {
     const res = await fetch(url);
     const buffer = await res.arrayBuffer();
@@ -147,7 +160,18 @@ function requireSinaNumber(value) {
   return number;
 }
 
-function buildQuote({ price, prevClose = null, change = null, changePct = null, session = null, currency = 'USD', name = '' }) {
+function buildQuote({
+  price,
+  prevClose = null,
+  change = null,
+  changePct = null,
+  session = null,
+  currency = 'USD',
+  name = '',
+  priceDigits = 2,
+  changeDigits = 2,
+  changePctDigits = 2,
+}) {
   const resolvedChange = change ?? (prevClose != null ? price - prevClose : null);
   const resolvedChangePct = changePct ?? (prevClose ? (resolvedChange / prevClose) * 100 : null);
   return {
@@ -157,6 +181,9 @@ function buildQuote({ price, prevClose = null, change = null, changePct = null, 
     session,
     currency,
     name,
+    priceDigits,
+    changeDigits,
+    changePctDigits,
   };
 }
 
@@ -183,6 +210,15 @@ function getUsMarketSession() {
   if (minutes >= 570 && minutes < 960) return 'regular';
   if (minutes >= 960 && minutes < 1200) return 'post';
   return null;
+}
+
+// 从新浪扩展时段时间（如 "Jul 30 08:01PM EDT"）判断该笔数据属于盘前还是盘后
+function getUsExtSession(extTime) {
+  const match = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(extTime || '');
+  if (!match) return null;
+  const hour = (parseInt(match[1], 10) % 12) + (/PM/i.test(match[3]) ? 12 : 0);
+  const minutes = hour * 60 + parseInt(match[2], 10);
+  return minutes < 570 ? 'pre' : 'post';
 }
 
 function parseSinaRaw(sinaCode, raw) {
@@ -226,20 +262,35 @@ function parseSinaRaw(sinaCode, raw) {
     });
   }
 
+  if (sinaCode.startsWith('globalbd_')) {
+    if (parts.length < 9) throw new Error('新浪数据不完整');
+    return buildQuote({
+      price: requireSinaNumber(parts[1]),
+      change: parseSinaNumber(parts[8]),
+      changePct: parseSinaNumber(parts[7]),
+      name: parts[0] || '',
+      priceDigits: 3,
+      changeDigits: 4,
+      changePctDigits: 4,
+    });
+  }
+
   if (sinaCode.startsWith('gb_')) {
     if (parts.length < 5) throw new Error('新浪数据不完整');
     const price = requireSinaNumber(parts[1]);
     const name = parts[0] || '';
     const session = getUsMarketSession();
-    // 盘前/盘后优先展示扩展时段数据：21=价格，22=涨跌幅，23=涨跌额
-    if ((session === 'pre' || session === 'post') && parts.length >= 24) {
+    // 非盘中时段优先展示扩展时段数据：21=价格，22=涨跌幅，23=涨跌额，24=时间
+    // 时段标签取自字段24，因此收盘后（20:00 之后）与周末仍会保留最后一笔盘后价
+    if (session !== 'regular' && parts.length >= 25) {
       const extPrice = parseSinaNumber(parts[21]);
-      if (extPrice != null && extPrice > 0) {
+      const extSession = getUsExtSession(parts[24]);
+      if (extPrice != null && extPrice > 0 && extSession) {
         return buildQuote({
           price: extPrice,
           change: parseSinaNumber(parts[23]),
           changePct: parseSinaNumber(parts[22]),
-          session,
+          session: extSession,
           currency: 'USD',
           name,
         });
@@ -297,6 +348,19 @@ async function fetchSymbol(symbol) {
   }
 }
 
+function syncSymbolLabels(symbols, results) {
+  const resultByKey = new Map(results.map((result) => [result.key, result]));
+  let changed = false;
+  const nextSymbols = symbols.map((symbol) => {
+    if (symbol.label) return symbol;
+    const name = resultByKey.get(symbol.key)?.name;
+    if (!name) return symbol;
+    changed = true;
+    return { ...symbol, label: name };
+  });
+  return changed ? nextSymbols : symbols;
+}
+
 function formatSession(session) {
   if (session === 'pre') return '盘前';
   if (session === 'regular') return '盘中';
@@ -304,15 +368,15 @@ function formatSession(session) {
   return '';
 }
 
-function formatTooltipPrice(value) {
-  if (value == null) return '—';
-  return value.toFixed(2);
+function formatTooltipPrice(item) {
+  if (item?.price == null) return '—';
+  return item.price.toFixed(item.priceDigits ?? 2);
 }
 
-function formatTooltipChangePct(pct) {
-  if (pct == null) return '';
-  const sign = pct >= 0 ? '+' : '';
-  return ` (${sign}${pct.toFixed(2)}%)`;
+function formatTooltipChangePct(item) {
+  if (item?.changePct == null) return '';
+  const sign = item.changePct >= 0 ? '+' : '';
+  return ` (${sign}${item.changePct.toFixed(item.changePctDigits ?? 2)}%)`;
 }
 
 async function updateActionTitle(results, symbols) {
@@ -321,8 +385,8 @@ async function updateActionTitle(results, symbols) {
   for (const r of results) {
     if (!visibleKeys.has(r.key)) continue;
     const name = r.label ? `${r.key} · ${r.label}` : r.key;
-    const price = formatTooltipPrice(r.price);
-    const change = formatTooltipChangePct(r.changePct);
+    const price = formatTooltipPrice(r);
+    const change = formatTooltipChangePct(r);
     const session = formatSession(r.session);
     lines.push(`${name}: ${price}${change}${session ? ` · ${session}` : ''}`);
   }
@@ -336,10 +400,12 @@ async function refreshPrices() {
     const results = await Promise.all(symbols.map(fetchSymbol));
     const prices = {};
     for (const r of results) prices[r.key] = r;
-    await chrome.storage.local.set({ prices, lastUpdate: Date.now() });
+    const symbolsWithLabels = syncSymbolLabels(symbols, results);
+    const now = Date.now();
+    await chrome.storage.local.set({ prices, symbols: symbolsWithLabels, lastUpdate: now });
 
     await updateBadge(results, prices);
-    await updateActionTitle(results, symbols);
+    await updateActionTitle(results, symbolsWithLabels);
 
     chrome.runtime.sendMessage({ action: 'prices-updated' }).catch(() => {});
   });
@@ -356,8 +422,7 @@ async function formatBadgeValue(item) {
   if (badgeChangePct) {
     const value = item?.changePct;
     if (value == null) return '';
-    const sign = value < 0 ? '-' : '';
-    return `${sign}${Math.abs(value).toFixed(2)}`;
+    return Math.abs(value).toFixed(2);
   }
 
   const value = item?.price;
@@ -375,8 +440,18 @@ async function formatBadgeValue(item) {
   return rounded.toString().padStart(4, '0');
 }
 
+function getBadgeColorByDailyChangePct(item) {
+  return item?.changePct < 0 ? '#f87171' : '#10b981';
+}
+
 async function updateBadge(results, prices) {
-  const { badgeSymbol, badgeChangePct } = await chrome.storage.local.get(['badgeSymbol', 'badgeChangePct']);
+  const { badgeSymbol, badgeChangePct, [BADGE_ENABLED_KEY]: badgeEnabled } =
+    await chrome.storage.local.get(['badgeSymbol', 'badgeChangePct', BADGE_ENABLED_KEY]);
+
+  if (badgeEnabled === false) {
+    chrome.action.setBadgeText({ text: '' });
+    return;
+  }
 
   if (badgeSymbol === null || badgeSymbol === '') {
     chrome.action.setBadgeText({ text: '' });
@@ -396,8 +471,9 @@ async function updateBadge(results, prices) {
 
   if (target && hasValue(target)) {
     const badgeText = await formatBadgeValue(target);
+    const badgeColor = getBadgeColorByDailyChangePct(target);
     chrome.action.setBadgeText({ text: badgeText });
-    chrome.action.setBadgeBackgroundColor({ color: '#10b981' });
+    chrome.action.setBadgeBackgroundColor({ color: badgeColor });
   } else {
     chrome.action.setBadgeText({ text: '' });
   }
@@ -433,17 +509,48 @@ async function ensureSinaRefererRule() {
   }
 }
 
+// 右键扩展图标即可切换角标，无需进入设置页
+async function setupBadgeContextMenu() {
+  const enabled = await getBadgeEnabled();
+  try {
+    await chrome.contextMenus.removeAll();
+    chrome.contextMenus.create({
+      id: BADGE_MENU_ID,
+      title: '显示角标',
+      type: 'checkbox',
+      checked: enabled,
+      contexts: ['action'],
+    });
+  } catch (e) {
+    console.error('Failed to setup badge context menu', e);
+  }
+}
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) scheduleRefresh();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: UPDATE_INTERVAL_MIN });
+  setupBadgeContextMenu();
   scheduleRefresh();
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  setupBadgeContextMenu();
   scheduleRefresh();
+});
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId !== BADGE_MENU_ID) return;
+  setBadgeEnabled(info.checked === true);
+});
+
+// 设置页改动后同步右键菜单的勾选状态
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes[BADGE_ENABLED_KEY]) return;
+  const checked = changes[BADGE_ENABLED_KEY].newValue !== false;
+  chrome.contextMenus.update(BADGE_MENU_ID, { checked }).catch(() => {});
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -457,12 +564,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== 'toggle-badge') return;
-  const { badgeSymbol } = await chrome.storage.local.get('badgeSymbol');
-  if (badgeSymbol === null || badgeSymbol === '') {
-    await chrome.storage.local.set({ badgeSymbol: DEFAULT_BADGE_SYMBOL });
-  } else {
-    await chrome.storage.local.set({ badgeSymbol: '' });
-    chrome.action.setBadgeText({ text: '' });
-  }
-  scheduleRefresh();
+  const enabled = await getBadgeEnabled();
+  await setBadgeEnabled(!enabled);
 });

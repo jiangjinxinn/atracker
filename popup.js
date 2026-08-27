@@ -7,27 +7,22 @@ async function applyTheme() {
 
 applyTheme();
 
-function formatPrice(value) {
-  if (value == null) return '--';
-  return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function formatPrice(item) {
+  if (item?.price == null) return '--';
+  const digits = item.priceDigits ?? 2;
+  return item.price.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
-function formatChange(value) {
-  if (value == null) return '--';
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(2)}`;
+function formatChange(item) {
+  if (item?.change == null) return '--';
+  const sign = item.change > 0 ? '+' : '';
+  return `${sign}${item.change.toFixed(item.changeDigits ?? 2)}`;
 }
 
-function formatChangePct(value) {
-  if (value == null) return '--';
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-function formatTime(timestamp) {
-  if (!timestamp) return '--';
-  const d = new Date(timestamp);
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+function formatChangePct(item) {
+  if (item?.changePct == null) return '--';
+  const sign = item.changePct > 0 ? '+' : '';
+  return `${sign}${item.changePct.toFixed(item.changePctDigits ?? 2)}%`;
 }
 
 function formatSession(session) {
@@ -61,16 +56,14 @@ async function addFetchLog(entry) {
 }
 
 async function renderPrices() {
-  const { prices = {}, lastUpdate, compactMode } = await chrome.storage.local.get(['prices', 'lastUpdate', 'compactMode']);
+  const { prices = {}, compactMode } = await chrome.storage.local.get(['prices', 'compactMode']);
   const symbols = await getSymbols();
   const visibleSymbols = symbols.filter((s) => s.visible !== false);
   const container = document.getElementById('prices');
-  const status = document.getElementById('status');
   container.innerHTML = '';
 
   if (visibleSymbols.length === 0) {
     container.innerHTML = '<div class="loading">当前没有启用的品种，请前往设置开启</div>';
-    status.textContent = '--';
     return;
   }
 
@@ -103,7 +96,7 @@ async function renderPrices() {
 
     const price = document.createElement('div');
     price.className = 'price';
-    price.textContent = formatPrice(item?.price);
+    price.textContent = formatPrice(item);
 
     const changeWrap = document.createElement('div');
     changeWrap.className = 'change-wrap';
@@ -113,14 +106,14 @@ async function renderPrices() {
     if (item?.change != null) {
       change.classList.add(item.change >= 0 ? 'up' : 'down');
     }
-    change.textContent = formatChange(item?.change);
+    change.textContent = formatChange(item);
 
     const changePct = document.createElement('span');
     changePct.className = 'change-pct';
     if (item?.changePct != null) {
       changePct.classList.add(item.changePct >= 0 ? 'up' : 'down');
     }
-    changePct.textContent = formatChangePct(item?.changePct);
+    changePct.textContent = formatChangePct(item);
 
     changeWrap.appendChild(change);
     changeWrap.appendChild(changePct);
@@ -139,8 +132,6 @@ async function renderPrices() {
 
     container.appendChild(card);
   }
-
-  status.textContent = `更新于 ${formatTime(lastUpdate)}`;
 }
 
 function escapeRegExp(value) {
@@ -148,7 +139,7 @@ function escapeRegExp(value) {
 }
 
 async function fetchFromSina(symbol) {
-  const url = `https://hq.sinajs.cn/list=${encodeURIComponent(symbol.sina)}`;
+  const url = `https://hq.sinajs.cn/rn=${Date.now()}&list=${encodeURIComponent(symbol.sina)}`;
   try {
     const res = await fetch(url);
     const buffer = await res.arrayBuffer();
@@ -188,7 +179,18 @@ function requireSinaNumber(value) {
   return number;
 }
 
-function buildQuote({ price, prevClose = null, change = null, changePct = null, session = null, currency = 'USD', name = '' }) {
+function buildQuote({
+  price,
+  prevClose = null,
+  change = null,
+  changePct = null,
+  session = null,
+  currency = 'USD',
+  name = '',
+  priceDigits = 2,
+  changeDigits = 2,
+  changePctDigits = 2,
+}) {
   const resolvedChange = change ?? (prevClose != null ? price - prevClose : null);
   const resolvedChangePct = changePct ?? (prevClose ? (resolvedChange / prevClose) * 100 : null);
   return {
@@ -198,6 +200,9 @@ function buildQuote({ price, prevClose = null, change = null, changePct = null, 
     session,
     currency,
     name,
+    priceDigits,
+    changeDigits,
+    changePctDigits,
   };
 }
 
@@ -224,6 +229,15 @@ function getUsMarketSession() {
   if (minutes >= 570 && minutes < 960) return 'regular';
   if (minutes >= 960 && minutes < 1200) return 'post';
   return null;
+}
+
+// 从新浪扩展时段时间（如 "Jul 30 08:01PM EDT"）判断该笔数据属于盘前还是盘后
+function getUsExtSession(extTime) {
+  const match = /(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(extTime || '');
+  if (!match) return null;
+  const hour = (parseInt(match[1], 10) % 12) + (/PM/i.test(match[3]) ? 12 : 0);
+  const minutes = hour * 60 + parseInt(match[2], 10);
+  return minutes < 570 ? 'pre' : 'post';
 }
 
 function parseSinaRaw(sinaCode, raw) {
@@ -267,20 +281,35 @@ function parseSinaRaw(sinaCode, raw) {
     });
   }
 
+  if (sinaCode.startsWith('globalbd_')) {
+    if (parts.length < 9) throw new Error('新浪数据不完整');
+    return buildQuote({
+      price: requireSinaNumber(parts[1]),
+      change: parseSinaNumber(parts[8]),
+      changePct: parseSinaNumber(parts[7]),
+      name: parts[0] || '',
+      priceDigits: 3,
+      changeDigits: 4,
+      changePctDigits: 4,
+    });
+  }
+
   if (sinaCode.startsWith('gb_')) {
     if (parts.length < 5) throw new Error('新浪数据不完整');
     const price = requireSinaNumber(parts[1]);
     const name = parts[0] || '';
     const session = getUsMarketSession();
-    // 盘前/盘后优先展示扩展时段数据：21=价格，22=涨跌幅，23=涨跌额
-    if ((session === 'pre' || session === 'post') && parts.length >= 24) {
+    // 非盘中时段优先展示扩展时段数据：21=价格，22=涨跌幅，23=涨跌额，24=时间
+    // 时段标签取自字段24，因此收盘后（20:00 之后）与周末仍会保留最后一笔盘后价
+    if (session !== 'regular' && parts.length >= 25) {
       const extPrice = parseSinaNumber(parts[21]);
-      if (extPrice != null && extPrice > 0) {
+      const extSession = getUsExtSession(parts[24]);
+      if (extPrice != null && extPrice > 0 && extSession) {
         return buildQuote({
           price: extPrice,
           change: parseSinaNumber(parts[23]),
           changePct: parseSinaNumber(parts[22]),
-          session,
+          session: extSession,
           currency: 'USD',
           name,
         });
@@ -338,6 +367,19 @@ async function fetchSymbolForPopup(symbol) {
   }
 }
 
+function syncSymbolLabels(symbols, results) {
+  const resultByKey = new Map(results.map((result) => [result.key, result]));
+  let changed = false;
+  const nextSymbols = symbols.map((symbol) => {
+    if (symbol.label) return symbol;
+    const name = resultByKey.get(symbol.key)?.name;
+    if (!name) return symbol;
+    changed = true;
+    return { ...symbol, label: name };
+  });
+  return changed ? nextSymbols : symbols;
+}
+
 async function fetchPricesInPopup() {
   const symbols = await getSymbols();
   if (symbols.length === 0) return;
@@ -345,12 +387,12 @@ async function fetchPricesInPopup() {
   const results = await Promise.all(symbols.map(fetchSymbolForPopup));
   const prices = {};
   for (const r of results) prices[r.key] = r;
-  await chrome.storage.local.set({ prices, lastUpdate: Date.now() });
+  const symbolsWithLabels = syncSymbolLabels(symbols, results);
+  const now = Date.now();
+  await chrome.storage.local.set({ prices, symbols: symbolsWithLabels, lastUpdate: now });
 }
 
 async function refreshFromPopup() {
-  const status = document.getElementById('status');
-  status.textContent = '刷新中...';
   try {
     await chrome.runtime.sendMessage({ action: 'refresh' });
   } catch (e) {
@@ -367,8 +409,5 @@ chrome.runtime.onMessage.addListener((request) => {
 
 document.addEventListener('DOMContentLoaded', async () => {
   await renderPrices();
-  document.getElementById('settings').addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
-  });
   await refreshFromPopup();
 });

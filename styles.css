@@ -44,38 +44,7 @@ body {
 }
 
 .container {
-  padding: 12px;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  background: transparent;
-  color: var(--text-secondary);
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.icon-btn:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.status {
-  font-size: 11px;
-  color: var(--text-secondary);
+  padding: 10px;
 }
 
 .prices {
